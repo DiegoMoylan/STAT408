@@ -37,13 +37,13 @@ They represent data science and related jobs scraped from Glassdoor (and possibl
 #| warning: false
 
 cities = read_csv(
-  "uscities.csv",
+  "./Data/uscities.csv",
   show_col_types = FALSE,
   col_select = c("city", "state_id", "lat", "long" = "lng", "population")
 )
 
 jobs_1 = read_csv(
-  "eda_data.csv",
+  "./Data/eda_data.csv",
   show_col_types = FALSE,
   col_select = c("title" = "Job Title", "salary_est" = "Salary Estimate",
                  "company" = "Company Name", "location" = "Location",
@@ -52,7 +52,7 @@ jobs_1 = read_csv(
 )
 
 jobs_2 = read_csv(
-  "DataAnalyst.csv",
+  "./Data/DataAnalyst.csv",
   show_col_types = FALSE,
   col_select = c("title" = "Job Title", "salary_est" = "Salary Estimate",
                  "company" = "Company Name", "location" = "Location",
@@ -194,15 +194,16 @@ leaflet(data = jobs_plotting) %>%
 ```
 
 ```{r}
+#Work in progress
+
 #| warning: false
 
 ggplot(data = usa) +
   geom_sf() +
   geom_text(data= jobs, aes(x=long, y=lat, label=city),
             color = "darkblue", fontface = "bold", check_overlap = FALSE) +
-  annotate(geom = "text", x = -90, y = 26, label = "Gulf of Mexico",
-           fontface = "italic", color = "grey22", size = 6) +
   coord_sf(xlim = c(-125, -66.6), ylim = c(24.2, 49.8), expand = FALSE)
+
 ```
 
 
