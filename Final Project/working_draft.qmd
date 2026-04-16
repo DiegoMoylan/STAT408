@@ -1,0 +1,215 @@
+---
+title: "Working Draft"
+format: pdf
+author: "Diego Moylan"
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+library(sf)
+library(ggspatial)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(leaflet)
+
+```
+
+
+Team: Diego Moylan
+
+The data I plan on working with comes from Kaggle, specifically these links:
+
+https://www.kaggle.com/datasets/thedevastator/jobs-dataset-from-glassdoor?select=eda_data.csv (2017)
+
+https://www.kaggle.com/datasets/andrewmvd/data-analyst-jobs (June 2020)
+
+https://www.kaggle.com/datasets/louise2001/us-cities 
+
+They represent data science and related jobs scraped from Glassdoor (and possibly Indeed) with salary and location information. The US cities dataset is included almost entirely because it has latitude/longitude information that I can join onto the location of the jobs. This should allow me to make some neat looking maps, which would look good on a dashboard. So far my best idea is to graph the jobs on a map, with color and size (of a dot on a city) representing salary and number of jobs (or vice versa).
+
+
+
+
+```{r}
+#read in data
+
+#| warning: false
+
+cities = read_csv(
+  "uscities.csv",
+  show_col_types = FALSE,
+  col_select = c("city", "state_id", "lat", "long" = "lng", "population")
+)
+
+jobs_1 = read_csv(
+  "eda_data.csv",
+  show_col_types = FALSE,
+  col_select = c("title" = "Job Title", "salary_est" = "Salary Estimate",
+                 "company" = "Company Name", "location" = "Location",
+                 "size" = "Size"
+                 )
+)
+
+jobs_2 = read_csv(
+  "DataAnalyst.csv",
+  show_col_types = FALSE,
+  col_select = c("title" = "Job Title", "salary_est" = "Salary Estimate",
+                 "company" = "Company Name", "location" = "Location",
+                 "size" = "Size"
+                 )
+)
+
+```
+
+
+```{r}
+# clean/merge data
+
+jobs = dplyr::union(jobs_1, jobs_2)
+
+jobs <- jobs |>
+  separate_wider_delim(
+    location, 
+    names = c("city", "state_id"), 
+    delim = ",",
+    too_few = ("align_start"),
+    too_many = ("drop")
+    ) |>
+  mutate(salary_est = (str_remove_all(salary_est, "[^0-9-K]"))) |>
+  separate_wider_delim(
+    salary_est,
+    names = c("min", "max"),
+    delim = "-",
+    too_few = ("align_start"),
+    too_many = ("drop")
+  ) |>
+  mutate(
+    
+    #no K means it is an hourly wage, which can closely approximate
+    #annual wages by multiplying by 2000x. Probably better than NA
+    
+    min = case_when(
+      is.na(min) ~ NA,
+      str_detect(min, "K") ~ 1000*as.integer(str_remove_all(min, "[^0-9]")),
+      .default = 2000*as.integer(min)
+    ),
+    max = case_when(
+      is.na(max) ~ NA,
+      str_detect(max, "K") ~ 1000*as.integer(str_remove_all(max, "[^0-9]")),
+      .default = 2000*as.integer(max)
+    ),
+    avg = as.integer((min + max) / 2)
+  ) |>
+  relocate(avg, .after = max)
+
+
+jobs <- jobs |>
+  mutate(
+    city = str_trim(city),
+    state_id = str_trim(state_id)
+  )
+
+cities <- cities |>
+  mutate(
+    city = str_trim(city),
+    state_id = str_trim(state_id)
+  )
+
+
+jobs <- jobs |>
+  left_join(cities, join_by(city, state_id))
+```
+
+```{r}
+jobs |>
+  summarize(
+    avg_salary_us = mean(avg, na.rm = TRUE)
+  )
+```
+```{r}
+jobs |> 
+  count(city, name = "jobs") |>
+  arrange(desc(jobs))
+```
+
+
+
+```{r}
+
+#I think large means that it is a more granular representation
+
+# Get US states
+usa <- ne_states(country = "united states of america", returnclass = 'sf')
+```
+
+
+
+```{r}
+jobs_plotting <- jobs |>
+  group_by(city, state_id, lat, long) |>
+  summarize(
+    city_avg_salary = round(mean(avg, na.rm = TRUE), -2),
+    city_num_jobs = n()
+  ) |> 
+  select(city, lat, long, city_avg_salary, city_num_jobs) |>
+  filter(is.na(lat) == FALSE & is.na(long) == FALSE) |>
+  arrange(desc(city_num_jobs))      #This is so leaflet puts the little 
+                                    #circles on top of the bigger circles
+  
+```
+
+```{r}
+color_palette <- colorNumeric(
+  palette = "inferno",
+  domain = jobs_plotting$city_avg_salary    #finds range of avg_salary column
+)
+
+
+leaflet(data = jobs_plotting) %>%
+  addTiles() %>%
+  addCircles(
+    ~long, 
+    ~lat,
+    popup = ~paste0(
+      jobs_plotting$city, ", ", jobs_plotting$state_id, "<br/>",
+      "Jobs: ", jobs_plotting$city_num_jobs, "<br/>",
+      "Average salary: ", jobs_plotting$city_avg_salary
+      ),
+    radius = (jobs_plotting$city_num_jobs + 2)*250,
+    opacity = 0.9,
+    fillColor = ~color_palette(jobs_plotting$city_avg_salary),
+    color = ~color_palette(jobs_plotting$city_avg_salary),
+    weight = 2
+    ) %>%
+  setView(lng = -95, lat = 37, zoom = 4) %>%
+  addLegend(
+    pal = color_palette,            
+    values = ~jobs_plotting$city_avg_salary, 
+    opacity = 0.7,
+    title = "Average salary",
+    position = "bottomright"
+  ) %>%
+  addScaleBar()
+```
+
+```{r}
+#| warning: false
+
+ggplot(data = usa) +
+  geom_sf() +
+  geom_text(data= jobs, aes(x=long, y=lat, label=city),
+            color = "darkblue", fontface = "bold", check_overlap = FALSE) +
+  annotate(geom = "text", x = -90, y = 26, label = "Gulf of Mexico",
+           fontface = "italic", color = "grey22", size = 6) +
+  coord_sf(xlim = c(-125, -66.6), ylim = c(24.2, 49.8), expand = FALSE)
+```
+
+
+
+
+
+
+
+
+

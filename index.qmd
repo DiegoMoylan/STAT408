@@ -6,6 +6,8 @@ format: html
 This code relates to the data in the `nycflights13` dataset.
 
 ```{r}
+#| include: false
+
 library(tidyverse)
 library(nycflights13)
 
