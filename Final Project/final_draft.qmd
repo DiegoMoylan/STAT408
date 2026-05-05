@@ -1,0 +1,321 @@
+---
+title: "Visualizing the Data Science Job Market"
+author: "Diego Moylan"
+format: dashboard
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+library(sf)
+library(ggspatial)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(leaflet)
+library(scales)
+library(DT)
+
+```
+
+```{r}
+#read in data
+#| include: false
+#| warning: false
+#| message: false
+
+cities = read_csv(
+  "./Data/uscities.csv",
+  show_col_types = FALSE,
+  col_select = c("city", "state_id", "lat", "long" = "lng", "population")
+)
+
+jobs_1 = read_csv(
+  "./Data/eda_data.csv",
+  show_col_types = FALSE,
+  col_select = c("title" = "Job Title", "salary_est" = "Salary Estimate",
+                 "company" = "Company Name", "location" = "Location",
+                 "size" = "Size"
+                 )
+)
+
+jobs_2 = read_csv(
+  "./Data/DataAnalyst.csv",
+  show_col_types = FALSE,
+  col_select = c("title" = "Job Title", "salary_est" = "Salary Estimate",
+                 "company" = "Company Name", "location" = "Location",
+                 "size" = "Size"
+                 )
+)
+
+```
+
+```{r}
+# clean/merge data
+#| include: false
+#| warning: false
+
+jobs = dplyr::union(jobs_1, jobs_2)
+
+jobs <- jobs |>
+  separate_wider_delim(
+    location, 
+    names = c("city", "state_id"), 
+    delim = ",",
+    too_few = ("align_start"),
+    too_many = ("drop")
+    ) |>
+  mutate(salary_est = (str_remove_all(salary_est, "[^0-9-K]"))) |>
+  separate_wider_delim(
+    salary_est,
+    names = c("min", "max"),
+    delim = "-",
+    too_few = ("align_start"),
+    too_many = ("drop")
+  ) |>
+  mutate(
+    
+    #no K means it is an hourly wage, which can closely approximate
+    #annual wages by multiplying by 2000x. Probably better than NA
+    
+    min = case_when(
+      is.na(min) ~ NA,
+      str_detect(min, "K") ~ 1000*as.integer(str_remove_all(min, "[^0-9]")),
+      .default = 2000*as.integer(min)
+    ),
+    max = case_when(
+      is.na(max) ~ NA,
+      str_detect(max, "K") ~ 1000*as.integer(str_remove_all(max, "[^0-9]")),
+      .default = 2000*as.integer(max)
+    ),
+    avg = as.integer((min + max) / 2)
+  ) |>
+  relocate(avg, .after = max)
+
+
+jobs <- jobs |>
+  mutate(
+    city = str_trim(city),
+    state_id = str_trim(state_id)
+  )
+
+cities <- cities |>
+  mutate(
+    city = str_trim(city),
+    state_id = str_trim(state_id)
+  )
+
+
+jobs <- jobs |>
+  left_join(cities, join_by(city, state_id))
+```
+
+# Introduction
+
+## Row
+This dashboard is about data science and related jobs in the contiguous United States scraped from Glassdoor and Indeed with relevant salary and location information. The dataset used data from 2017 and 2020, with a total of 2721 position listings included. There are listings from 402 individual cities, although only 50 have at least 10 jobs in the dataset.
+
+## Row
+
+
+```{r}
+
+jobs |> 
+  group_by(city, state_id) |>
+  summarize(
+    avg_salary = mean(avg, na.rm = TRUE),
+    num_jobs = n()
+  ) |>
+  arrange(desc(avg_salary)) |>
+  datatable(
+    colnames = c("City", "State", "Avg Salary", "# Jobs"),
+    options = list(pageLength = 10)
+  ) |>
+  formatCurrency("avg_salary", digits = 0)
+```
+
+
+
+
+
+
+
+
+
+
+# Analysis
+
+
+## Row {height=50%}
+
+```{r}
+#| warning: false
+#| message: false
+jobs |>
+  group_by(city, state_id) |>
+  summarize(
+    avg_salary = mean(avg, na.rm = TRUE),
+    num_jobs = n()
+  ) |>
+  filter(num_jobs >= 10) |>
+  arrange(desc(avg_salary)) |>
+  head(10) |>
+
+  mutate(
+    fill_color = case_when(
+      state_id == "CA" ~ rgb(1, 0.4, 0.4),   # reds
+      state_id == "MA" ~ rgb(0.3, 0.6, 1),   # blues
+      .default         = rgb(0,0,0)    # 
+  )) |>
+  
+  ggplot(aes(x = reorder(city, -avg_salary), y = avg_salary, fill = fill_color, color=state_id)) + 
+  geom_bar(stat = "identity") +
+  geom_point(aes(color = state_id), x = NA, y = NA) +
+  scale_fill_identity() +
+  scale_y_continuous(labels = scales::dollar) +
+  scale_color_manual(
+    name = "State",
+    values = c("CA" = rgb(1, 0.4, 0.4), "MA" = rgb(0.3, 0.6, 1)),
+    guide = guide_legend(
+      override.aes = list(
+         fill = c(rgb(1, 0.4, 0.4), rgb(0.3, 0.6, 1)),
+         color = NA,
+         size = 5,
+         shape = 15))
+  ) +
+  labs(
+    x = "",
+    y = "Average Salary (USD)",
+    title = "Cities with the best paying data science jobs (min. 10 jobs)"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+
+## Row {height=50%}
+```{r}
+jobs |> 
+  group_by(city, state_id) |>
+  summarize(
+    num_jobs = n()
+  ) |>
+  arrange(desc(num_jobs)) |>
+  head(10) |>
+
+  ggplot(aes(x = reorder(city, -num_jobs), y = num_jobs, fill = num_jobs)) + 
+  geom_bar(stat = "identity") +
+  labs(x = "", y = "Number of Jobs", title = "Cities with the most data science jobs") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+    
+  ) 
+```
+
+
+
+
+
+
+
+# Map
+
+## Row {height=10%}
+
+This map shows data science jobs in America, with the size of a dot corresponding to the number of jobs available in a given city, and the color representing the average salary of those jobs.
+```{r}
+#| include: false
+
+# Get US states
+usa <- ne_states(country = "united states of america", returnclass = 'sf')
+```
+
+## Row {height=90%}
+
+
+```{r}
+#| include: false
+
+jobs_plotting <- jobs |>
+  group_by(city, state_id, lat, long) |>
+  summarize(
+    city_avg_salary = round(mean(avg, na.rm = TRUE), -2),
+    city_num_jobs = n()
+  ) |> 
+  select(city, lat, long, city_avg_salary, city_num_jobs) |>
+  filter(is.na(lat) == FALSE & is.na(long) == FALSE) |>
+  arrange(desc(city_num_jobs))      #This is so leaflet puts the little 
+                                    #circles on top of the bigger circles
+  
+```
+
+```{r}
+color_palette <- colorNumeric(
+  palette = "inferno",
+  domain = jobs_plotting$city_avg_salary    #finds range of avg_salary column
+)
+
+
+leaflet(data = jobs_plotting) %>%
+  addTiles() %>%
+  addCircles(
+    ~long, 
+    ~lat,
+    popup = ~paste0(
+      jobs_plotting$city, ", ", jobs_plotting$state_id, "<br/>",
+      "Jobs: ", jobs_plotting$city_num_jobs, "<br/>",
+      "Average salary: ", jobs_plotting$city_avg_salary
+    ),
+    radius = (jobs_plotting$city_num_jobs + 2)*250,
+    opacity = 0.9,
+    fillColor = ~color_palette(jobs_plotting$city_avg_salary),
+    color = ~color_palette(jobs_plotting$city_avg_salary),
+    weight = 2
+  ) %>%
+  setView(lng = -95, lat = 37, zoom = 4) %>%
+  addLegend(
+    pal = color_palette,            
+    values = ~jobs_plotting$city_avg_salary, 
+    opacity = 0.7,
+    title = "Average salary",
+    position = "bottomright"
+  ) %>%
+  addScaleBar()
+```
+
+
+
+
+# Summary
+
+From analyzing the data in these datasets, we can see that California has the highest average salary for data science, although that is likely because they have the highest cost of living. Most of the jobs were centered around the major tech hubs, which means the data is probably a fairly representative sample. This data is from 2017 and 2020, so the salaries and number of jobs could easily have seen some changes, but the code that was used to create these datasets is publicly available, so more up-to-date research could be done on the subject.
+
+
+
+
+
+
+
+
+
+This data came from Kaggle, specifically these links:
+
+https://www.kaggle.com/datasets/thedevastator/jobs-dataset-from-glassdoor?select=eda_data.csv (2017)
+
+https://www.kaggle.com/datasets/andrewmvd/data-analyst-jobs (June 2020)
+
+https://www.kaggle.com/datasets/louise2001/us-cities
+
+
+
+This repo contains the code that was used to scrape some of the job data:
+
+https://github.com/picklesueat/Jobs-Titles-In-Data-Science
+
+
+
+
+
+
+
