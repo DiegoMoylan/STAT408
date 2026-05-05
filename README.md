@@ -7,4 +7,4 @@ Data comes from Kaggle, specifically these links:
 2. https://www.kaggle.com/datasets/andrewmvd/data-analyst-jobs (June 2020)
 3. https://www.kaggle.com/datasets/louise2001/us-cities 
 
-Read the license for link 3 before you steal any of this data
+Read the license.txt for link 3 before you steal any of this data
