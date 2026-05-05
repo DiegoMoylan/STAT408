@@ -1,7 +1,9 @@
 ---
 title: "Visualizing the Data Science Job Market"
 author: "Diego Moylan"
-format: dashboard
+format: 
+  dashboard:
+    self-contained: true
 output-dir: docs
 ---
 
