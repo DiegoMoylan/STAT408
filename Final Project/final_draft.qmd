@@ -2,6 +2,7 @@
 title: "Visualizing the Data Science Job Market"
 author: "Diego Moylan"
 format: dashboard
+output-dir: docs
 ---
 
 ```{r}
